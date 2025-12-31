@@ -15,10 +15,11 @@ BIN_DIR="/usr/local/bin"
 # 检查权限
 [[ $EUID -ne 0 ]] && echo -e "${RED}错误：必须使用 root 运行！${PLAIN}" && exit 1
 
-# --- 工具函数 ---
+# --- 工具函数 (强制过滤 IPv4) ---
 get_public_ip() {
-    # 获取用于显示的公网IP
-    local ip=$(curl -s -4 https://api64.ipify.org || curl -s -4 ifconfig.me || curl -s -4 ip.sb)
+    # 强制获取纯净的 IPv4 地址
+    local ip=$(curl -s -4 --connect-timeout 5 https://api64.ipify.org | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}')
+    [[ -z "$ip" ]] && ip=$(curl -s -4 --connect-timeout 5 ifconfig.me | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}')
     echo "$ip"
 }
 
@@ -43,54 +44,41 @@ generate_random() {
     cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $1 | head -n 1
 }
 
-# --- 结果展示面板 ---
-show_frps_info() {
-    # 如果用户监听的是 0.0.0.0，则获取公网IP显示，否则显示用户自定义的监听地址
-    local display_ip=$bind_addr
-    if [[ "$bind_addr" == "0.0.0.0" ]]; then
-        display_ip=$(get_public_ip)
-    fi
-
-    echo -e "\n${GREEN}==============================================${PLAIN}"
-    echo -e "${GREEN}          frps 服务端部署/更新成功！          ${PLAIN}"
-    echo -e "${GREEN}==============================================${PLAIN}"
-    echo -e "${YELLOW}【客户端连接参考信息】${PLAIN}"
-    echo -e "服务器地址   : ${CYAN}${display_ip}${PLAIN}"
-    echo -e "服务端口     : ${CYAN}${bind_port}${PLAIN}"
-    echo -e "认证 Token   : ${CYAN}${token}${PLAIN}"
-    echo -e "----------------------------------------------"
-    echo -e "${YELLOW}【仪表盘管理后台】${PLAIN}"
-    echo -e "访问地址     : ${CYAN}http://${display_ip}:${dash_port}${PLAIN}"
-    echo -e "管理用户     : ${CYAN}${dash_user}${PLAIN}"
-    echo -e "管理密码     : ${CYAN}${dash_pwd}${PLAIN}"
-    echo -e "${GREEN}==============================================${PLAIN}"
-    echo -e "${YELLOW}提醒：请在云平台防火墙放行 TCP 端口: ${bind_port}, ${dash_port}${PLAIN}\n"
-}
-
-# --- 服务端交互配置 ---
+# --- 服务端交互配置 (新增 IP 确认逻辑) ---
 config_frps() {
-    echo -e "\n${YELLOW}>>> 开始服务端配置 (IPv4 优先)${PLAIN}"
+    echo -e "\n${YELLOW}>>> 开始服务端交互配置 (IPv4)${PLAIN}"
     
-    read -p "1. 监听地址 (IPv4) [默认: 0.0.0.0]: " bind_addr
-    bind_addr=${bind_addr:-0.0.0.0}
+    # 1. 预先获取公网 IP 供用户确认
+    local detected_ip=$(get_public_ip)
+    [[ -z "$detected_ip" ]] && detected_ip="0.0.0.0"
 
+    echo -e "检测到当前服务器 IPv4: ${CYAN}${detected_ip}${PLAIN}"
+    read -p "1. 确认监听地址 [默认: $detected_ip]: " bind_addr
+    bind_addr=${bind_addr:-$detected_ip}
+
+    # 2. 端口交互
     read -p "2. 绑定监听端口 [默认: 8055]: " bind_port
     bind_port=${bind_port:-8055}
 
+    # 3. Token 交互
     local rand_token=$(generate_random 16)
-    read -p "3. 设置认证 Token [默认: $rand_token]: " token
+    read -p "3. 设置认证 Token [默认回车随机生成]: " token
     token=${token:-$rand_token}
+    echo -e "使用 Token: ${CYAN}${token}${PLAIN}"
 
-    read -p "4. 仪表盘(面板)端口 [默认: 7500]: " dash_port
+    # 4. 仪表盘交互
+    read -p "4. 仪表盘端口 [默认: 7500]: " dash_port
     dash_port=${dash_port:-7500}
 
     read -p "5. 仪表盘用户名 [默认: admin]: " dash_user
     dash_user=${dash_user:-admin}
 
     local rand_pwd=$(generate_random 12)
-    read -p "6. 仪表盘密码 [默认: $rand_pwd]: " dash_pwd
+    read -p "6. 仪表盘密码 [默认回车随机生成]: " dash_pwd
     dash_pwd=${dash_pwd:-$rand_pwd}
+    echo -e "使用密码: ${CYAN}${dash_pwd}${PLAIN}"
 
+    # 生成配置文件 (TOML 格式)
     mkdir -p $BASE_DIR
     cat > $BASE_DIR/frps.toml <<EOF
 bindAddr = "$bind_addr"
@@ -104,31 +92,24 @@ webServer.password = "$dash_pwd"
 EOF
 }
 
-# --- 客户端交互配置 ---
-config_frpc() {
-    echo -e "\n${YELLOW}>>> 开始客户端基础配置${PLAIN}"
-    read -p "1. 服务器公网 IP (IPv4): " s_addr
-    until [[ -n "$s_addr" ]]; do
-        read -p "${RED}IP不能为空，请重新输入: ${PLAIN}" s_addr
-    done
-
-    read -p "2. 服务器监听端口 [默认: 8055]: " s_port
-    s_port=${s_port:-8055}
-
-    read -p "3. 服务器 Token: " s_token
-    until [[ -n "$s_token" ]]; do
-        read -p "${RED}Token不能为空，请重新输入: ${PLAIN}" s_token
-    done
-
-    mkdir -p $BASE_DIR
-    cat > $BASE_DIR/frpc.toml <<EOF
-serverAddr = "$s_addr"
-serverPort = $s_port
-auth.token = "$s_token"
-EOF
+# --- 结果展示面板 ---
+show_frps_info() {
+    echo -e "\n${GREEN}==============================================${PLAIN}"
+    echo -e "${GREEN}          frps 服务端配置已完成！             ${PLAIN}"
+    echo -e "${GREEN}==============================================${PLAIN}"
+    echo -e "${YELLOW}【客户端连接信息】${PLAIN}"
+    echo -e "服务器地址   : ${CYAN}${bind_addr}${PLAIN}"
+    echo -e "服务端口     : ${CYAN}${bind_port}${PLAIN}"
+    echo -e "认证 Token   : ${CYAN}${token}${PLAIN}"
+    echo -e "----------------------------------------------"
+    echo -e "${YELLOW}【仪表盘管理后台】${PLAIN}"
+    echo -e "访问地址     : ${CYAN}http://${bind_addr}:${dash_port}${PLAIN}"
+    echo -e "管理用户     : ${CYAN}${dash_user}${PLAIN}"
+    echo -e "管理密码     : ${CYAN}${dash_pwd}${PLAIN}"
+    echo -e "${GREEN}==============================================${PLAIN}"
 }
 
-# --- 具体的部署动作 ---
+# --- 具体的部署动作 (系统原生/Docker) ---
 install_frp_system() {
     local type=$1
     get_arch
@@ -158,24 +139,31 @@ install_frp_docker() {
     check_docker
     docker pull fatedier/$type:$DOCKER_TAG
     docker rm -f $type &>/dev/null
-    
-    # 注意：Docker部署依然建议 host 网络以保证 IPv4 端口透传
     docker run -d --name $type --restart always --network host \
         -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml fatedier/$type:$DOCKER_TAG
-    
-    if [ "$type" == "frps" ]; then
-        sleep 2
-        show_frps_info
-    fi
+    if [ "$type" == "frps" ]; then sleep 2 && show_frps_info; fi
 }
 
-# --- 客户端应用管理 ---
+# --- 客户端配置与应用管理 ---
+config_frpc() {
+    echo -e "\n${YELLOW}>>> 开始客户端基础配置${PLAIN}"
+    read -p "1. 服务器公网 IPv4 地址: " s_addr
+    until [[ -n "$s_addr" ]]; do read -p "${RED}不能为空: ${PLAIN}" s_addr; done
+    read -p "2. 服务器监听端口 [默认: 8055]: " s_port
+    s_port=${s_port:-8055}
+    read -p "3. 服务器 Token: " s_token
+    until [[ -n "$s_token" ]]; do read -p "${RED}不能为空: ${PLAIN}" s_token; done
+    mkdir -p $BASE_DIR
+    cat > $BASE_DIR/frpc.toml <<EOF
+serverAddr = "$s_addr"
+serverPort = $s_port
+auth.token = "$s_token"
+EOF
+}
+
 manage_apps() {
-    if [[ ! -f "$BASE_DIR/frpc.toml" ]]; then
-        echo -e "${RED}错误：请先安装客户端！${PLAIN}"
-        return
-    fi
-    echo -e "\n${YELLOW}>>> 添加转发应用${PLAIN}"
+    if [[ ! -f "$BASE_DIR/frpc.toml" ]]; then echo -e "${RED}请先安装客户端！${PLAIN}"; return; fi
+    echo -e "\n${YELLOW}>>> 添加转发规则${PLAIN}"
     read -p "1. 应用名 (如 web): " name
     read -p "2. 转发类型 [默认: tcp]: " type
     type=${type:-tcp}
@@ -194,12 +182,12 @@ localPort = $l_port
 remotePort = $r_port
 EOF
     if docker ps | grep -q frpc; then docker restart frpc; else systemctl restart frpc; fi
-    echo -e "${GREEN}应用 [$name] 已添加并生效！${PLAIN}"
+    echo -e "${GREEN}应用 [$name] 已生效！${PLAIN}"
 }
 
 # --- 主菜单 ---
 clear
-echo -e "${GREEN}frp 全能版交互脚本 (强制 IPv4 优先)${PLAIN}"
+echo -e "${GREEN}frp 全能版交互脚本 (IPv4 检测确认版)${PLAIN}"
 echo "----------------------------------------"
 echo "1. 安装服务端 (frps) - 系统原生"
 echo "2. 安装服务端 (frps) - Docker 容器"
