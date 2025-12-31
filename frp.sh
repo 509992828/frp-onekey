@@ -96,12 +96,39 @@ EOF
     systemctl daemon-reload && systemctl enable $type && systemctl restart $type
 }
 
+#  定义版本号变量，方便后续统一修改
+FRP_VERSION="v0.65.0"
 install_frp_docker() {
-    local type=$1 # frps or frpc
+    local type=$1 # frps 或 frpc
+    
     check_docker
+    
+    echo -e "${YELLOW}正在拉取 Docker 镜像: fatedier/$type:$FRP_TAG ...${NC}"
+    
+    # 先拉取镜像，如果失败则停止执行
+    if ! docker pull fatedier/$type:$FRP_TAG; then
+        echo -e "${RED}错误：拉取镜像失败！请检查网络连接或镜像版本是否正确。${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}镜像拉取成功，正在启动容器...${NC}"
+    
+    # 删除旧容器（如果存在）
     docker rm -f $type &>/dev/null
-    docker run -d --name $type --restart always --network host \
-        -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml fatedier/$type:0.65.0
+    
+    # 启动新容器
+    docker run -d \
+        --name $type \
+        --restart always \
+        --network host \
+        -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml \
+        fatedier/$type:$FRP_TAG
+
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}$type Docker 容器已成功启动！${NC}"
+    else
+        echo -e "${RED}$type 容器启动失败，请检查 Docker 日志。${NC}"
+    fi
 }
 
 # --- 客户端应用管理 ---
