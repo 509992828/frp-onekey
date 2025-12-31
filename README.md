@@ -9,4 +9,4 @@
 在 Linux 终端执行以下命令：
 
 ```bash
-wget -N [https://raw.githubusercontent.com/你的用户名/frp-onekey/main/frp.sh](https://raw.githubusercontent.com/你的用户名/frp-onekey/main/frp.sh) && chmod +x frp.sh && ./frp.sh
+wget -N [https://raw.githubusercontent.com/509992828/frp-onekey/main/frp.sh](https://raw.githubusercontent.com/你的用户名/frp-onekey/main/frp.sh) && chmod +x frp.sh && ./frp.sh
