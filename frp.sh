@@ -5,26 +5,25 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
-NC='\033[0m'
+PLAIN='\033[0m'
 
 # --- 基础变量配置 ---
-FRP_VERSION_NUM="0.65.0" 
+FRP_VERSION_NUM="0.61.0" 
 BASE_DIR="/etc/frp"
 BIN_DIR="/usr/local/bin"
 
 # 检查权限
-[[ $EUID -ne 0 ]] && echo -e "${RED}错误：必须使用 root 运行！${NC}" && exit 1
+[[ $EUID -ne 0 ]] && echo -e "${RED}错误：必须使用 root 运行！${PLAIN}" && exit 1
 
 # --- 工具函数 ---
 get_ip() {
-    # 尝试多个接口获取公网IP
     local ip=$(curl -s https://api64.ipify.org || curl -s ifconfig.me || curl -s ip.sb)
     echo "$ip"
 }
 
 check_docker() {
     if ! command -v docker &> /dev/null; then
-        echo -e "${YELLOW}未检测到 Docker，正在安装...${NC}"
+        echo -e "${YELLOW}未检测到 Docker，正在安装...${PLAIN}"
         curl -fsSL https://get.docker.com | bash -s docker
         systemctl start docker && systemctl enable docker
     fi
@@ -35,7 +34,7 @@ get_arch() {
     case $arch in
         x86_64) arch="amd64" ;;
         aarch64) arch="arm64" ;;
-        *) echo -e "${RED}不支持的架构${NC}"; exit 1 ;;
+        *) echo -e "${RED}不支持的架构${PLAIN}"; exit 1 ;;
     esac
 }
 
@@ -43,58 +42,54 @@ generate_random() {
     cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $1 | head -n 1
 }
 
-# --- 结果展示面板 ---
+# --- 结果展示面板 (独立函数) ---
 show_frps_info() {
     local server_ip=$(get_ip)
-    echo -e "\n${GREEN}==============================================${NC}"
-    echo -e "${GREEN}          frps 服务端部署/更新成功！          ${NC}"
-    echo -e "${GREEN}==============================================${NC}"
-    echo -e "${YELLOW}【客户端连接信息 - 配置 frpc 时使用】${NC}"
-    echo -e "服务器 IP   : ${CYAN}${server_ip}${NC}"
-    echo -e "服务端口     : ${CYAN}${bind_port}${NC}"
-    echo -e "认证 Token   : ${CYAN}${token}${NC}"
+    echo -e "\n${GREEN}==============================================${PLAIN}"
+    echo -e "${GREEN}          frps 服务端部署/更新成功！          ${PLAIN}"
+    echo -e "${GREEN}==============================================${PLAIN}"
+    echo -e "${YELLOW}【客户端连接参考信息】${PLAIN}"
+    echo -e "服务器 IP   : ${CYAN}${server_ip}${PLAIN}"
+    echo -e "服务端口     : ${CYAN}${bind_port}${PLAIN}"
+    echo -e "认证 Token   : ${CYAN}${token}${PLAIN}"
     echo -e "----------------------------------------------"
-    echo -e "${YELLOW}【仪表盘管理后台】${NC}"
-    echo -e "访问地址     : ${CYAN}http://${server_ip}:${dash_port}${NC}"
-    echo -e "管理用户     : ${CYAN}${dash_user}${NC}"
-    echo -e "管理密码     : ${CYAN}${dash_pwd}${NC}"
-    echo -e "${GREEN}==============================================${NC}"
-    echo -e "${YELLOW}提醒：请确保云服务器防火墙/安全组已放行上述端口！${NC}\n"
+    echo -e "${YELLOW}【仪表盘管理后台】${PLAIN}"
+    echo -e "访问地址     : ${CYAN}http://${server_ip}:${dash_port}${PLAIN}"
+    echo -e "管理用户     : ${CYAN}${dash_user}${PLAIN}"
+    echo -e "管理密码     : ${CYAN}${dash_pwd}${PLAIN}"
+    echo -e "${GREEN}==============================================${PLAIN}"
+    echo -e "${YELLOW}请确保安全组/防火墙已放行以上所有端口！${PLAIN}\n"
 }
 
-# --- 服务端安装逻辑 (核心配置) ---
+# --- 服务端交互配置 ---
 config_frps() {
-    read -p "绑定端口 [默认 8055]: " bind_port
+    echo -e "\n${YELLOW}>>> 开始服务端配置${PLAIN}"
+    read -p "1. 绑定监听端口 [默认: 8055]: " bind_port
     bind_port=${bind_port:-8055}
-    token=$(generate_random 16)
-    read -p "仪表盘端口 [默认 7500]: " dash_port
+
+    local rand_token=$(generate_random 16)
+    read -p "2. 设置认证 Token [默认: $rand_token]: " token
+    token=${token:-$rand_token}
+
+    read -p "3. 仪表盘(面板)端口 [默认: 7500]: " dash_port
     dash_port=${dash_port:-7500}
-    read -p "仪表盘用户 [默认 admin]: " dash_user
+
+    read -p "4. 仪表盘用户名 [默认: admin]: " dash_user
     dash_user=${dash_user:-admin}
-    read -p "仪表盘密码 [回车随机]: " dash_pwd
-    [[ -z "$dash_pwd" ]] && dash_pwd=$(generate_random 12)
+
+    local rand_pwd=$(generate_random 12)
+    read -p "5. 仪表盘密码 [默认: $rand_pwd]: " dash_pwd
+    dash_pwd=${dash_pwd:-$rand_pwd}
 
     mkdir -p $BASE_DIR
     cat > $BASE_DIR/frps.toml <<EOF
 bindPort = $bind_port
 auth.token = "$token"
+
 webServer.addr = "0.0.0.0"
 webServer.port = $dash_port
 webServer.user = "$dash_user"
 webServer.password = "$dash_pwd"
-EOF
-}
-
-# --- 客户端安装逻辑 (核心配置) ---
-config_frpc() {
-    read -p "服务端 IP: " s_addr
-    read -p "服务端 端口: " s_port
-    read -p "服务端 Token: " s_token
-    mkdir -p $BASE_DIR
-    cat > $BASE_DIR/frpc.toml <<EOF
-serverAddr = "$s_addr"
-serverPort = $s_port
-auth.token = "$s_token"
 EOF
 }
 
@@ -119,35 +114,41 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload && systemctl enable $type && systemctl restart $type
+    # 直接在此调用显示
+    if [ "$type" == "frps" ]; then show_frps_info; fi
 }
 
 install_frp_docker() {
     local type=$1
     local DOCKER_TAG="v${FRP_VERSION_NUM}"
     check_docker
-    echo -e "${YELLOW}正在拉取 Docker 镜像: fatedier/$type:$DOCKER_TAG ...${NC}"
-    if ! docker pull fatedier/$type:$DOCKER_TAG; then
-        echo -e "${RED}错误：拉取镜像失败！${NC}"
-        return 1
-    fi
+    docker pull fatedier/$type:$DOCKER_TAG
     docker rm -f $type &>/dev/null
     docker run -d --name $type --restart always --network host \
         -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml fatedier/$type:$DOCKER_TAG
+    
+    # 只要容器启动了，就显示配置信息
+    if [ "$type" == "frps" ]; then
+        sleep 2 # 等待容器稳定
+        show_frps_info
+    fi
 }
 
 # --- 客户端应用管理 ---
 manage_apps() {
-    echo -e "\n1. 添加应用服务\n2. 查看/删除应用(手动编辑)"
-    read -p "请选择: " app_choice
-    if [ "$app_choice" == "1" ]; then
-        read -p "应用名: " name
-        read -p "转发类型 [tcp]: " type
-        type=${type:-tcp}
-        read -p "内网 IP [127.0.0.1]: " l_ip
-        l_ip=${l_ip:-127.0.0.1}
-        read -p "内网端口: " l_port
-        read -p "外网端口: " r_port
-        cat >> $BASE_DIR/frpc.toml <<EOF
+    if [[ ! -f "$BASE_DIR/frpc.toml" ]]; then
+        echo -e "${RED}错误：请先安装客户端！${PLAIN}"
+        return
+    fi
+    read -p "1. 应用名: " name
+    read -p "2. 转发类型 [tcp]: " type
+    type=${type:-tcp}
+    read -p "3. 本地 IP [127.0.0.1]: " l_ip
+    l_ip=${l_ip:-127.0.0.1}
+    read -p "4. 内网端口: " l_port
+    read -p "5. 外网访问端口: " r_port
+
+    cat >> $BASE_DIR/frpc.toml <<EOF
 
 [[proxies]]
 name = "$name"
@@ -156,29 +157,39 @@ localIP = "$l_ip"
 localPort = $l_port
 remotePort = $r_port
 EOF
-        if docker ps | grep -q frpc; then docker restart frpc; else systemctl restart frpc; fi
-        echo -e "${GREEN}应用已添加并重启生效！${NC}"
-    else
-        echo -e "${YELLOW}请执行: nano $BASE_DIR/frpc.toml 手动修改${NC}"
-    fi
+    if docker ps | grep -q frpc; then docker restart frpc; else systemctl restart frpc; fi
+    echo -e "${GREEN}应用 [$name] 已生效！${PLAIN}"
+}
+
+# --- 客户端连接配置 ---
+config_frpc() {
+    read -p "服务器 IP: " s_addr
+    read -p "服务器 端口: " s_port
+    read -p "服务器 Token: " s_token
+    mkdir -p $BASE_DIR
+    cat > $BASE_DIR/frpc.toml <<EOF
+serverAddr = "$s_addr"
+serverPort = $s_port
+auth.token = "$s_token"
+EOF
 }
 
 # --- 主菜单 ---
 clear
-echo -e "${GREEN}frp 全能版一键脚本 (系统原生+Docker)${NC}"
-echo "--------------------------------"
-echo "1. 安装服务端 (frps) - 普通方式"
-echo "2. 安装服务端 (frps) - Docker方式"
-echo "3. 安装/修改客户端 (frpc) - 普通方式"
-echo "4. 安装/修改客户端 (frpc) - Docker方式"
-echo "5. 客户端应用管理 (添加转发)"
-echo "6. 卸载 frp (清理容器及程序)"
-echo "0. 退出"
-read -p "请输入选项: " main_opt
+echo -e "${GREEN}frp 全能版交互式脚本 (系统原生+Docker)${PLAIN}"
+echo "----------------------------------------"
+echo "1. 安装服务端 (frps) - 系统原生"
+echo "2. 安装服务端 (frps) - Docker 容器"
+echo "3. 安装/修改客户端 (frpc) - 系统原生"
+echo "4. 安装/修改客户端 (frpc) - Docker 容器"
+echo "5. 客户端应用管理 (添加转发规则)"
+echo "6. 彻底卸载 frp"
+echo "0. 退出脚本"
+read -p "请输入选项数字: " main_opt
 
 case $main_opt in
-    1) config_frps && install_frp_system frps && show_frps_info ;;
-    2) config_frps && install_frp_docker frps && show_frps_info ;;
+    1) config_frps && install_frp_system frps ;;
+    2) config_frps && install_frp_docker frps ;;
     3) config_frpc && install_frp_system frpc ;;
     4) config_frpc && install_frp_docker frpc ;;
     5) manage_apps ;;
@@ -186,7 +197,7 @@ case $main_opt in
         systemctl stop frps frpc &>/dev/null
         docker rm -f frps frpc &>/dev/null
         rm -rf $BASE_DIR $BIN_DIR/frp* /etc/systemd/system/frp*.service
-        echo "清理完成。"
+        echo "已清理。"
         ;;
     *) exit 0 ;;
 esac
