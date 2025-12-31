@@ -7,7 +7,7 @@ YELLOW='\033[0;33m'
 NC='\033[0m'
 
 # 基础变量
-FRP_VERSION="0.61.0"
+FRP_VERSION="0.65.0"
 BASE_DIR="/etc/frp"
 BIN_DIR="/usr/local/bin"
 
@@ -101,7 +101,7 @@ install_frp_docker() {
     check_docker
     docker rm -f $type &>/dev/null
     docker run -d --name $type --restart always --network host \
-        -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml fatedier/$type:latest
+        -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml fatedier/$type:0.65.0
 }
 
 # --- 客户端应用管理 ---
