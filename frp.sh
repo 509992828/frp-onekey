@@ -43,29 +43,33 @@ generate_random() {
     cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w $1 | head -n 1
 }
 
-# --- 服务端配置 ---
+# --- 服务端交互配置 (修正版) ---
 config_frps() {
-    echo -e "\n${YELLOW}>>> 服务端交互配置${PLAIN}"
+    echo -e "\n${YELLOW}>>> 开始服务端配置 (IPv4)${PLAIN}"
     pub_ip=$(get_public_ip)
+    [[ -z "$pub_ip" ]] && pub_ip="0.0.0.0"
+
     echo -e "检测到服务器公网 IP: ${CYAN}${pub_ip}${PLAIN}"
-    
     read -p "1. 监听地址 [默认: 0.0.0.0]: " bind_addr
     bind_addr=${bind_addr:-0.0.0.0}
-    read -p "2. 绑定端口 [默认: 8055]: " bind_port
+
+    read -p "2. 绑定监听端口 [默认: 8055]: " bind_port
     bind_port=${bind_port:-8055}
 
+    # 注意：这里的变量名必须严格一致
     local r_token=$(generate_random 16)
-    read -p "3. 认证 Token [默认: $r_token]: " token
-    token=${token:-$rand_token}
+    read -p "3. 设置认证 Token [默认: $r_token]: " token
+    token=${token:-$r_token}  # 这里之前写错了变量名
 
-    read -p "4. 面板端口 [默认: 7500]: " dash_port
+    read -p "4. 仪表盘(面板)端口 [默认: 7500]: " dash_port
     dash_port=${dash_port:-7500}
-    read -p "5. 面板用户 [默认: admin]: " dash_user
+
+    read -p "5. 仪表盘用户名 [默认: admin]: " dash_user
     dash_user=${dash_user:-admin}
 
     local r_pwd=$(generate_random 12)
-    read -p "6. 面板密码 [默认: $r_pwd]: " dash_pwd
-    dash_pwd=${dash_pwd:-$rand_pwd}
+    read -p "6. 仪表盘密码 [默认: $r_pwd]: " dash_pwd
+    dash_pwd=${dash_pwd:-$r_pwd} # 这里之前写错了变量名
 
     mkdir -p $BASE_DIR
     cat > $BASE_DIR/frps.toml <<EOF
@@ -79,7 +83,6 @@ webServer.password = "$dash_pwd"
 EOF
     chmod 644 $BASE_DIR/frps.toml
 }
-
 show_frps_info() {
     echo -e "\n${GREEN}==============================================${PLAIN}"
     echo -e "          frps 服务端配置成功！               "
