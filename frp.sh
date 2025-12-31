@@ -6,8 +6,9 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-# 基础变量
-FRP_VERSION="0.65.0"
+# --- 基础变量配置 ---
+# 以后升级版本只需要改这一个数字
+FRP_VERSION_NUM="0.65.0" 
 BASE_DIR="/etc/frp"
 BIN_DIR="/usr/local/bin"
 
@@ -77,10 +78,11 @@ EOF
 install_frp_system() {
     local type=$1 # frps or frpc
     get_arch
-    wget https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_linux_${arch}.tar.gz -O frp.tar.gz
+    # 注意这里使用了 v${FRP_VERSION_NUM}
+    wget https://github.com/fatedier/frp/releases/download/v${FRP_VERSION_NUM}/frp_${FRP_VERSION_NUM}_linux_${arch}.tar.gz -O frp.tar.gz
     tar -zxvf frp.tar.gz
-    cp frp_${FRP_VERSION}_linux_${arch}/$type $BIN_DIR/
-    rm -rf frp.tar.gz frp_${FRP_VERSION}_linux_${arch}
+    cp frp_${FRP_VERSION_NUM}_linux_${arch}/$type $BIN_DIR/
+    rm -rf frp.tar.gz frp_${FRP_VERSION_NUM}_linux_${arch}
     
     cat > /etc/systemd/system/${type}.service <<EOF
 [Unit]
@@ -96,39 +98,31 @@ EOF
     systemctl daemon-reload && systemctl enable $type && systemctl restart $type
 }
 
-#  定义版本号变量，方便后续统一修改
-FRP_VERSION="v0.65.0"
 install_frp_docker() {
     local type=$1 # frps 或 frpc
+    # 这里统一加上 "v" 前缀
+    local DOCKER_TAG="v${FRP_VERSION_NUM}"
     
     check_docker
     
-    echo -e "${YELLOW}正在拉取 Docker 镜像: fatedier/$type:$FRP_TAG ...${NC}"
+    echo -e "${YELLOW}正在拉取 Docker 镜像: fatedier/$type:$DOCKER_TAG ...${NC}"
     
-    # 先拉取镜像，如果失败则停止执行
-    if ! docker pull fatedier/$type:$FRP_TAG; then
-        echo -e "${RED}错误：拉取镜像失败！请检查网络连接或镜像版本是否正确。${NC}"
+    if ! docker pull fatedier/$type:$DOCKER_TAG; then
+        echo -e "${RED}错误：拉取镜像失败！请检查网络或版本号 v${FRP_VERSION_NUM} 是否正确。${NC}"
         return 1
     fi
 
     echo -e "${GREEN}镜像拉取成功，正在启动容器...${NC}"
-    
-    # 删除旧容器（如果存在）
     docker rm -f $type &>/dev/null
     
-    # 启动新容器
     docker run -d \
         --name $type \
         --restart always \
         --network host \
         -v $BASE_DIR/${type}.toml:/etc/frp/${type}.toml \
-        fatedier/$type:$FRP_TAG
+        fatedier/$type:$DOCKER_TAG
 
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}$type Docker 容器已成功启动！${NC}"
-    else
-        echo -e "${RED}$type 容器启动失败，请检查 Docker 日志。${NC}"
-    fi
+    [[ $? -eq 0 ]] && echo -e "${GREEN}$type Docker 容器已成功启动！${NC}" || echo -e "${RED}$type 容器启动失败。${NC}"
 }
 
 # --- 客户端应用管理 ---
@@ -161,7 +155,7 @@ EOF
 
 # --- 主菜单 ---
 clear
-echo -e "${GREEN}frp 全能版一键脚本 (普通+Docker)${NC}"
+echo -e "${GREEN}frp 全能版一键脚本 (系统原生+Docker)${NC}"
 echo "--------------------------------"
 echo "1. 安装服务端 (frps) - 普通方式"
 echo "2. 安装服务端 (frps) - Docker方式"
